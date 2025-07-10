@@ -1,0 +1,430 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "SupervIA - Notification Service API",
+    "version": "1.0.0",
+    "description": "Ce service gère l'envoi de notifications via e-mail (Nodemailer), push (Firebase Cloud Messaging), et WebSockets (Socket.IO). Il est sécurisé par JWT et fournit une API pour déclencher ces notifications.",
+    "contact": {
+      "name": "Support Technique SupervIA",
+      "email": "support@supervia.com"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3005",
+      "description": "Serveur de développement local"
+    },
+    {
+      "url": "https://api.supervia.com/notifications",
+      "description": "Serveur de production"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Token d'accès JWT inter-services. Le token doit contenir une propriété `serviceId` (ou `iss`) identifiant le service appelant (ex: 'auth-service')."
+      }
+    },
+    "schemas": {
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": false
+          },
+          "error": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string"
+              },
+              "code": {
+                "type": "string"
+              },
+              "details": {
+                "type": "object",
+                "nullable": true
+              }
+            }
+          }
+        }
+      },
+      "SendEmail": {
+        "type": "object",
+        "properties": {
+          "to": {
+            "type": "string",
+            "format": "email",
+            "description": "Adresse e-mail du destinataire."
+          },
+          "subject": {
+            "type": "string",
+            "description": "Sujet de l'e-mail."
+          },
+          "template": {
+            "type": "string",
+            "enum": [
+              "accountConfirmation",
+              "passwordReset",
+              "invoice",
+              "alert"
+            ],
+            "description": "Nom du template Handlebars à utiliser (sans l'extension .hbs)."
+          },
+          "context": {
+            "type": "object",
+            "description": "Données à injecter dans le template.",
+            "example": {
+              "name": "John Doe",
+              "link": "http://example.com/confirm"
+            }
+          }
+        },
+        "required": [
+          "to",
+          "subject",
+          "template",
+          "context"
+        ]
+      },
+      "SendPush": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "Jeton d'enregistrement FCM de l'appareil."
+          },
+          "title": {
+            "type": "string",
+            "description": "Titre de la notification."
+          },
+          "body": {
+            "type": "string",
+            "description": "Corps du message de la notification."
+          },
+          "data": {
+            "type": "object",
+            "description": "Données supplémentaires (facultatif).",
+            "example": {
+              "screen": "details",
+              "id": "123"
+            }
+          }
+        },
+        "required": [
+          "token",
+          "title",
+          "body"
+        ]
+      },
+      "Broadcast": {
+        "type": "object",
+        "properties": {
+          "event": {
+            "type": "string",
+            "description": "Le nom de l'événement à diffuser.",
+            "example": "system_maintenance"
+          },
+          "data": {
+            "type": "object",
+            "description": "La charge utile de données à envoyer.",
+            "example": {
+              "message": "Maintenance planifiée dans 15 minutes."
+            }
+          }
+        },
+        "required": [
+          "event",
+          "data"
+        ]
+      },
+      "EmitToRoom": {
+        "type": "object",
+        "properties": {
+          "room": {
+            "type": "string",
+            "description": "Le nom de la room (ex: un ID utilisateur).",
+            "example": "user-abcdef-123456"
+          },
+          "event": {
+            "type": "string",
+            "description": "Le nom de l'événement à émettre.",
+            "example": "new_toast"
+          },
+          "data": {
+            "type": "object",
+            "description": "La charge utile de données à envoyer.",
+            "example": {
+              "type": "success",
+              "message": "Votre dashboard a été sauvegardé !"
+            }
+          }
+        },
+        "required": [
+          "room",
+          "event",
+          "data"
+        ]
+      },
+      "HealthCheckItem": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "error",
+              "down"
+            ],
+            "example": "ok"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "paths": {
+    "/api/v1/health": {
+      "get": {
+        "summary": "Vérifie la santé du service et de ses dépendances.",
+        "tags": [
+          "Health"
+        ],
+        "description": "Retourne un statut détaillé incluant la connectivité SMTP et l'initialisation de Firebase. Renvoie un statut HTTP 200 si tout est OK, et 503 si une dépendance critique est en panne.",
+        "responses": {
+          "200": {
+            "description": "Le service est sain et toutes les dépendances sont opérationnelles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "example": "ok"
+                    },
+                    "timestamp": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "version": {
+                      "type": "string",
+                      "example": "1.0.0"
+                    },
+                    "checks": {
+                      "type": "object",
+                      "properties": {
+                        "server": {
+                          "$ref": "#/components/schemas/HealthCheckItem"
+                        },
+                        "smtp": {
+                          "$ref": "#/components/schemas/HealthCheckItem"
+                        },
+                        "firebase": {
+                          "$ref": "#/components/schemas/HealthCheckItem"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Le service est dégradé car au moins une dépendance est en panne.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "example": "error"
+                    },
+                    "checks": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/send-email": {
+      "post": {
+        "summary": "Envoyer un e-mail transactionnel via un template.",
+        "tags": [
+          "Notifications"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendEmail"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "E-mail envoyé avec succès."
+          },
+          "400": {
+            "description": "Données de validation invalides.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autorisé (token JWT manquant ou invalide).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne du serveur (ex: erreur SMTP).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/send-push": {
+      "post": {
+        "summary": "Envoyer une notification push à un appareil.",
+        "tags": [
+          "Notifications"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendPush"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Notification push envoyée avec succès."
+          },
+          "400": {
+            "description": "Requête invalide."
+          },
+          "401": {
+            "description": "Non autorisé."
+          },
+          "500": {
+            "description": "Erreur interne du serveur (ex: erreur FCM)."
+          }
+        }
+      }
+    },
+    "/api/v1/ws/broadcast": {
+      "post": {
+        "summary": "Diffuser un message WebSocket à tous les clients connectés.",
+        "tags": [
+          "Notifications"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Broadcast"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Requête de diffusion acceptée."
+          },
+          "401": {
+            "description": "Non autorisé."
+          }
+        }
+      }
+    },
+    "/api/v1/ws/emit": {
+      "post": {
+        "summary": "Envoyer un message WebSocket à une room spécifique.",
+        "tags": [
+          "Notifications"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmitToRoom"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Requête d'émission acceptée."
+          },
+          "401": {
+            "description": "Non autorisé."
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Notifications",
+      "description": "API pour l'envoi de notifications (e-mail, push, et WebSocket)."
+    }
+  ]
+}
