@@ -1,0 +1,50 @@
+services:
+  notifier-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: supervia-notification-service
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "3005:3005"
+    environment:
+      - NODE_ENV=production
+      - PORT=3005
+      # --- Sécurité ---
+      - JWT_SECRET=${JWT_SECRET}
+      - ALLOWED_SERVICES=${ALLOWED_SERVICES}
+      # --- URLs & CORS ---
+      - API_URL=${API_URL:-http://localhost:3005}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://localhost:4000}
+      # --- Email (Nodemailer) ---
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT}
+      - SMTP_SECURE=${SMTP_SECURE}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASS=${SMTP_PASS}
+      - SMTP_FROM_NAME=${SMTP_FROM_NAME}
+      - SMTP_FROM_EMAIL=${SMTP_FROM_EMAIL}
+      # --- Firebase ---
+      - FIREBASE_SERVICE_ACCOUNT_JSON=${FIREBASE_SERVICE_ACCOUNT_JSON}
+      # --- Redis ---
+      - REDIS_URL=${REDIS_URL:-redis://supervia-redis:6379/2} # Utiliser une DB Redis différente
+    volumes:
+      - notification-logs:/app/logs
+    networks:
+      - supervia-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3005/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+networks:
+  supervia-network:
+    external: true
+    name: infra_supervia-network # Le nom correct du réseau partagé
+
+volumes:
+  notification-logs: 
